@@ -1,59 +1,82 @@
 const tinify = require('tinify');
-const { execa } = require('execa');
+const { spawnSync } = require('child_process');
 const fs = require('fs-extra');
 const path = require('path');
 const os = require('os');
 
 module.exports = (ctx) => {
   const register = () => {
-    // 注册插件钩子：在上传之前处理图片
     ctx.helper.beforeUploadPlugins.register('compress-pro', {
       handle: async function (ctx) {
-        const config = ctx.getConfig('transformer.compress-pro') || {};
-        const { type = 'local', tinypngKey, threshold = 50, pngquantPath = 'pngquant', jpegoptimPath = 'jpegoptim' } = config;
+        const config = ctx.getConfig('picgo-plugin-compress-pro') || ctx.getConfig('transformer.compress-pro') || {};
+        const { 
+          type = 'local', 
+          tinypngKey, 
+          threshold = 50, 
+          pngquantPath = '', 
+          jpegoptimPath = '' 
+        } = config;
 
-        // 遍历待上传的图片
         const tasks = ctx.output.map(async (item) => {
-          // 1. 阈值检查 (单位：KB)
           const originSizeKB = item.buffer.length / 1024;
-          if (originSizeKB < threshold) {
-            ctx.log.info(`[Compress Pro] 跳过压缩：${item.fileName} (${originSizeKB.toFixed(2)}KB < ${threshold}KB)`);
-            return item;
-          }
+          if (originSizeKB < threshold) return item;
 
+          let tmpFile = '';
           try {
             if (type === 'tinypng' && tinypngKey) {
-              // --- 远程压缩：TinyPNG ---
-              ctx.log.info(`[Compress Pro] 正在使用 TinyPNG 压缩: ${item.fileName}`);
               tinify.key = tinypngKey;
-              const compressedBuffer = await tinify.fromBuffer(item.buffer).toBuffer();
-              item.buffer = compressedBuffer;
+              item.buffer = await tinify.fromBuffer(item.buffer).toBuffer();
             } else {
-              // --- 本地压缩：pngquant / jpegoptim ---
-              ctx.log.info(`[Compress Pro] 正在使用本地压缩: ${item.fileName}`);
               const ext = path.extname(item.fileName).toLowerCase();
-              const tmpFile = path.join(os.tmpdir(), `picgo-tmp-${Date.now()}${ext}`);
-              
-              // 先写入临时文件
-              await fs.writeFile(tmpFile, item.buffer);
+              if (ext !== '.png' && ext !== '.jpg' && ext !== '.jpeg') return item;
 
-              if (ext === '.png') {
-                // pngquant 压缩
-                await execa(pngquantPath, ['--force', '--ext', ext, '--quality', '65-80', tmpFile]);
-              } else if (ext === '.jpg' || ext === '.jpeg') {
-                // jpegoptim 压缩
-                await execa(jpegoptimPath, ['--max=80', '--strip-all', tmpFile]);
+              // 动态选择临时目录
+              let safeDir = os.tmpdir();
+              if (ext === '.png' && pngquantPath.includes(':')) {
+                safeDir = path.dirname(pngquantPath);
+              } else if ((ext === '.jpg' || ext === '.jpeg') && jpegoptimPath.includes(':')) {
+                safeDir = path.dirname(jpegoptimPath);
               }
 
-              // 读取压缩后的文件并回填到 PicGo
+              tmpFile = path.join(safeDir, `picgo_tmp_${Date.now()}${ext}`);
+              await fs.writeFile(tmpFile, item.buffer);
+
+              let result;
+              // 处理路径补全，区分 Windows 和 Linux 系统
+              const isWindows = os.platform() === 'win32';
+              const pngquantExe = pngquantPath.endsWith(isWindows ? '\\' : '/') ? path.join(pngquantPath, 'pngquant.exe') : pngquantPath;
+              const jpegoptimExe = jpegoptimPath.endsWith(isWindows ? '\\' : '/') ? path.join(jpegoptimPath, 'jpegoptim') : jpegoptimPath;
+
+              if (ext === '.png') {
+                ctx.log.info(`[Compress Pro] PNG 压缩开始: ${tmpFile}`);
+                result = spawnSync(pngquantExe, ['--force', '--ext', '.png', '--speed', '1', tmpFile]);
+              } else {
+                ctx.log.info(`[Compress Pro] JPG 压缩开始: ${tmpFile}`);
+                result = spawnSync(jpegoptimExe, ['--max=80', '--strip-all', tmpFile]);
+              }
+
+              if (result.error) {
+                throw new Error(`进程启动失败: ${result.error.message}`);
+              }
+
+              if (result.status !== 0 && result.status !== 99) {
+                throw new Error(`执行失败，错误码: ${result.status}, 信息: ${result.stderr.toString()}`);
+              }
+
               item.buffer = await fs.readFile(tmpFile);
-              await fs.remove(tmpFile); // 清理临时文件
             }
-            
-            const newSizeKB = item.buffer.length / 1024;
-            ctx.log.info(`[Compress Pro] 压缩成功: ${item.fileName} (${originSizeKB.toFixed(2)}KB -> ${newSizeKB.toFixed(2)}KB)`);
+            ctx.log.info(`[Compress Pro] ${item.fileName} 压缩成功`);
           } catch (err) {
-            ctx.log.error(`[Compress Pro] 压缩失败: ${err.message}`);
+            ctx.log.error(`[Compress Pro] ${item.fileName} 失败: ${err.message}`);
+            ctx.emit('notification', {
+              title: '图片压缩失败',
+              body: `${item.fileName} 压缩失败: ${err.message}`,
+              isError: true
+            });
+          } finally {
+            if (tmpFile && fs.existsSync(tmpFile)) {
+              await fs.remove(tmpFile);
+            }
           }
           return item;
         });
@@ -63,56 +86,16 @@ module.exports = (ctx) => {
     });
   };
 
-  // 配置项定义
   const config = (ctx) => {
-    let userConfig = ctx.getConfig('transformer.compress-pro') || {};
+    let userConfig = ctx.getConfig('picgo-plugin-compress-pro') || {};
     return [
-      {
-        name: 'type',
-        type: 'list',
-        alias: '压缩方式',
-        choices: ['local', 'tinypng'],
-        default: userConfig.type || 'local',
-        required: true
-      },
-      {
-        name: 'tinypngKey',
-        type: 'input',
-        alias: 'TinyPNG API Key',
-        default: userConfig.tinypngKey || '',
-        message: '仅在使用 tinypng 方式时需要',
-        required: false
-      },
-      {
-        name: 'threshold',
-        type: 'input',
-        alias: '压缩阈值 (KB)',
-        default: userConfig.threshold || 50,
-        message: '大于此体积的图片才会触发压缩',
-        required: false
-      },
-      {
-        name: 'pngquantPath',
-        type: 'input',
-        alias: 'pngquant 路径',
-        default: userConfig.pngquantPath || 'pngquant',
-        message: '本地执行文件的路径，若已加入环境变量可直接写文件名',
-        required: false
-      },
-      {
-        name: 'jpegoptimPath',
-        type: 'input',
-        alias: 'jpegoptim 路径',
-        default: userConfig.jpegoptimPath || 'jpegoptim',
-        message: '本地执行文件的路径',
-        required: false
-      }
+      { name: 'type', type: 'list', alias: '压缩方式', choices: ['local', 'tinypng'], default: userConfig.type || 'local' },
+      { name: 'tinypngKey', type: 'input', alias: 'TinyPNG Key', default: userConfig.tinypngKey || '', required: userConfig.type === 'tinypng' },
+      { name: 'threshold', type: 'input', alias: '阈值(KB)', default: userConfig.threshold || 50 },
+      { name: 'pngquantPath', type: 'input', alias: 'pngquant 路径', default: userConfig.pngquantPath || '', placeholder: '例如 D:\\Tools\\pngquant 或 /usr/local/bin/pngquant' },
+      { name: 'jpegoptimPath', type: 'input', alias: 'jpegoptim 路径', default: userConfig.jpegoptimPath || '', placeholder: '例如 D:\\Tools\\jpegoptim 或 /usr/local/bin/jpegoptim' }
     ];
   };
 
-  return {
-    register,
-    transformer: 'compress-pro',
-    config
-  };
+  return { register, config };
 };
