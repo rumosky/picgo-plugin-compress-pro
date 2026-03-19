@@ -6,6 +6,7 @@ const os = require('os');
 
 module.exports = (ctx) => {
   const register = () => {
+    // 在 GUI 和 CLI 中都注册插件
     ctx.helper.beforeUploadPlugins.register('compress-pro', {
       handle: async function (ctx) {
         const config = ctx.getConfig('picgo-plugin-compress-pro') || ctx.getConfig('transformer.compress-pro') || {};
@@ -68,11 +69,17 @@ module.exports = (ctx) => {
             ctx.log.info(`[Compress Pro] ${item.fileName} 压缩成功`);
           } catch (err) {
             ctx.log.error(`[Compress Pro] ${item.fileName} 失败: ${err.message}`);
-            ctx.emit('notification', {
-              title: '图片压缩失败',
-              body: `${item.fileName} 压缩失败: ${err.message}`,
-              isError: true
-            });
+            // 在 GUI 中使用通知
+            if (ctx.gui) {
+              ctx.emit('notification', {
+                title: '图片压缩失败',
+                body: `${item.fileName} 压缩失败: ${err.message}`,
+                isError: true
+              });
+            } else {
+              // 在 CLI 中显示错误日志
+              ctx.log.error(`CLI模式: 图片压缩失败: ${item.fileName} 失败: ${err.message}`);
+            }
           } finally {
             if (tmpFile && fs.existsSync(tmpFile)) {
               await fs.remove(tmpFile);

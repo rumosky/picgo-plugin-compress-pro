@@ -1,14 +1,19 @@
 {
   "name": "picgo-plugin-compress-pro",
   "version": "1.0.0",
-  "description": "",
+  "description": "An advanced PicGo plugin for compressing images",
+  "homepage": "https://github.com/rumosky/picgo-plugin-compress-pro",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "picgo",
+    "picgo-gui-plugin",
+    "picgo-plugin"
+  ],
+  "author": "rumosky",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "execa": "^9.6.1",

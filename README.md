@@ -1,14 +1,22 @@
-## 项目介绍
+## 介绍
 
-一款基于PicGo的图片压缩插件，支持批量压缩图片，
+一款基于PicGo的图片压缩插件，
 
-支持本地压缩和在线压缩。
+> 在插件市场里面试了compress1.4和compress-next，还有tinypng的插件，但是都无法正常使用，不知道为啥，所以才写了这个插件。
 
-本地压缩使用pngquant和jpegoptim库，
-在线压缩使用PicGo的在线压缩服务。
-。
+## 功能
 
+支持**本地压缩**和**在线压缩**。
 
-https://pngquant.org/
+本地压缩使用`pngquant`和`jpegoptim`两个库，在线压缩使用tinypng。
 
-https://github.com/tjko/jpegoptim
+## 使用
+
+1，选择本地模式，请设置`pngquant`和`jpegoptim`的路径。结尾请添加`/`。
+2，选择在线模式，请设置tinypng的API Key。
+
+## 感谢
+
+[pngquant](https://pngquant.org/)
+
+[jpegoptim](https://github.com/tjko/jpegoptim)
