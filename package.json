@@ -1,6 +1,6 @@
 {
   "name": "picgo-plugin-compress-pro",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "An advanced PicGo plugin for image compression using TinyPNG and local tools like PNGQuant and JPEGOptim.",
   "homepage": "https://rumosky.com/archives/882/",
   "main": "src/index.js",
